@@ -26,32 +26,49 @@ const path     = require('path')
 async function post() {
   try {
     // ── Recover state saved by pre.js ────────────────────────────────────────
-    const startMs    = parseInt(core.getState('start_ms') || '0', 10)
+    //
+    // LESSON: pre/post lifecycle only works for PUBLISHED actions (owner/repo@ref).
+    // Local actions (./path) do not run pre/post — the runner skips them with a warning.
+    // Consequence: core.getState('start_ms') returns '' when pre never ran.
+    //
+    // Only start_ms truly requires state (it must be captured before steps run).
+    // All other metadata is available directly from process.env in both main and post,
+    // so we read it from there rather than from state — this is more resilient.
+    //
+    const startMsRaw = core.getState('start_ms')
+    const preRan     = startMsRaw !== ''
+    const startMs    = preRan ? parseInt(startMsRaw, 10) : null
     const endMs      = Date.now()
-    const durationMs = endMs - startMs
-    const durationSec = (durationMs / 1000).toFixed(1)
+    const durationMs  = startMs !== null ? endMs - startMs : null
+    const durationSec = durationMs !== null ? (durationMs / 1000).toFixed(1) : 'unknown (pre hook did not run — local actions do not support pre/post)'
 
     const meta = {
-      workflow:    core.getState('workflow'),
-      job:         core.getState('job'),
-      runId:       core.getState('run_id'),
-      runNumber:   core.getState('run_number'),
-      actor:       core.getState('actor'),
-      sha:         core.getState('sha').slice(0, 7),
-      ref:         core.getState('ref'),
-      eventName:   core.getState('event_name'),
-      runnerOs:    core.getState('runner_os'),
-      runnerName:  core.getState('runner_name'),
-      startIso:    new Date(startMs).toISOString(),
+      // Read directly from process.env — available in all lifecycle phases
+      workflow:    process.env.GITHUB_WORKFLOW   ?? '',
+      job:         process.env.GITHUB_JOB        ?? '',
+      runId:       process.env.GITHUB_RUN_ID     ?? '',
+      runNumber:   process.env.GITHUB_RUN_NUMBER ?? '',
+      actor:       process.env.GITHUB_ACTOR      ?? '',
+      sha:         (process.env.GITHUB_SHA       ?? '').slice(0, 7),
+      ref:         process.env.GITHUB_REF        ?? '',
+      eventName:   process.env.GITHUB_EVENT_NAME ?? '',
+      runnerOs:    process.env.RUNNER_OS         ?? '',
+      runnerName:  process.env.RUNNER_NAME       ?? '',
+      // start time only available if pre ran
+      startIso:    startMs !== null ? new Date(startMs).toISOString() : 'n/a',
       endIso:      new Date(endMs).toISOString(),
       durationMs,
-      durationSec: Number(durationSec),
+      durationSec: durationMs !== null ? Number((durationMs / 1000).toFixed(1)) : null,
+    }
+
+    if (!preRan) {
+      core.warning('[telemetry] pre hook did not run (local actions do not support pre/post). Duration unavailable.')
     }
 
     core.info(`[telemetry] Job finished — duration: ${durationSec}s`)
 
     // ── Set output (accessible to downstream jobs via needs.<job>.outputs) ───
-    core.setOutput('duration-seconds', durationSec)
+    core.setOutput('duration-seconds', meta.durationSec ?? 'unknown')
 
     // ── GITHUB_STEP_SUMMARY ───────────────────────────────────────────────────
     await core.summary
@@ -82,9 +99,13 @@ async function post() {
       fs.writeFileSync(reportPath, JSON.stringify(meta, null, 2))
 
       // v1 API: artifact.create() returns an ArtifactClient
+      // Build a safe artifact name — job and runNumber come from env vars now,
+      // but sanitize anyway: replace anything not alphanumeric/hyphen/underscore/dot.
+      const safeName = `telemetry-${meta.job || 'job'}-${meta.runNumber || meta.runId || 'run'}`
+        .replace(/[^a-zA-Z0-9._-]/g, '-')
       const client = artifact.create()
       const { artifactName } = await client.uploadArtifact(
-        `telemetry-${meta.job}-${meta.runNumber}`,
+        safeName,
         [reportPath],
         process.env.GITHUB_WORKSPACE ?? process.cwd()
       )
