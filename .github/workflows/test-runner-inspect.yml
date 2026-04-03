@@ -59,12 +59,22 @@ jobs:
 
       # This step shows how to consume outputs from a previous step.
       # ${{ steps.<id>.outputs.<name> }} is the expression syntax.
+      # LESSON: Never inline ${{ }} expressions in run: scripts when the value
+      # can contain shell special characters (quotes, parens, braces, etc.).
+      # Pass through env: instead — the runner substitutes ${{ }} at expression
+      # evaluation time (safe), then the shell reads $VAR (also safe).
+      # This also prevents script injection attacks (if the value came from
+      # user-controlled input like a PR title, inline substitution = RCE).
       - name: Print outputs
         shell: bash
+        env:
+          RUNNER_OS_OUT: ${{ steps.inspect.outputs.runner-os }}
+          RUNNER_ARCH_OUT: ${{ steps.inspect.outputs.runner-arch }}
+          TOOL_VERSIONS: ${{ steps.inspect.outputs.tool-versions }}
         run: |
-          echo "runner-os:     ${{ steps.inspect.outputs.runner-os }}"
-          echo "runner-arch:   ${{ steps.inspect.outputs.runner-arch }}"
-          echo "tool-versions: ${{ steps.inspect.outputs.tool-versions }}"
+          echo "runner-os:     $RUNNER_OS_OUT"
+          echo "runner-arch:   $RUNNER_ARCH_OUT"
+          echo "tool-versions: $TOOL_VERSIONS"
 
       # Demonstrate: reading a context value vs reading an output
       # github.runner.os is the runner context; steps.inspect.outputs.runner-os
