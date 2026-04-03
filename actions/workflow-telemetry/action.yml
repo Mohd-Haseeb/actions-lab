@@ -1,0 +1,36 @@
+name: Workflow Telemetry
+description: >
+  Times your entire job using the pre/post hook mechanism.
+  pre.js records the start time via core.saveState().
+  post.js reads it back via core.getState(), computes duration,
+  uploads a timing artifact, and optionally posts a PR comment via Octokit.
+
+inputs:
+  github-token:
+    description: >
+      GitHub token used for posting PR comments. Defaults to the built-in
+      GITHUB_TOKEN which has read/write access to the repo for the current run.
+    required: false
+    default: ${{ github.token }}
+  comment-on-pr:
+    description: Post a timing report as a comment on pull requests
+    required: false
+    default: 'false'
+  upload-artifact:
+    description: Upload timing data as a workflow artifact
+    required: false
+    default: 'true'
+
+outputs:
+  duration-seconds:
+    description: Total job wall-clock duration in seconds
+
+runs:
+  using: node20
+  # pre runs BEFORE the first step in the job (not before main)
+  pre: src/pre.js
+  # main is required but we use it just to log that telemetry is active
+  main: src/main.js
+  # post runs AFTER all steps, even if the job fails (because post-if: always())
+  post: src/post.js
+  post-if: always()

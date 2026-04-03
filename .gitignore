@@ -1,0 +1,4 @@
+node_modules/
+*.log
+telemetry-report.json
+runner-inspect-report.json

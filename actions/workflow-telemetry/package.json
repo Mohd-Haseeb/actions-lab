@@ -1,0 +1,10 @@
+{
+  "name": "workflow-telemetry",
+  "version": "1.0.0",
+  "description": "Job-level timing and telemetry via pre/post lifecycle hooks",
+  "dependencies": {
+    "@actions/artifact": "^2.1.11",
+    "@actions/core": "^1.10.1",
+    "@actions/github": "^6.0.0"
+  }
+}

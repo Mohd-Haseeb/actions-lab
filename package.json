@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "workspaces": [
+    "actions/*"
+  ],
+  "scripts": {
+    "install:all": "npm install --workspaces"
+  }
+}

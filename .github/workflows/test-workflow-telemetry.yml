@@ -1,0 +1,79 @@
+# test-workflow-telemetry.yml
+#
+# WHAT THIS TEACHES:
+#  - pull_request trigger and the data available in github.event.pull_request
+#  - How pre/post hooks bracket the entire job's steps
+#  - secrets: GITHUB_TOKEN is auto-created; you never have to set it in repo settings
+#  - permissions: pull-requests: write is needed to post PR comments
+#  - if: always() at the job/step level (mirrors post-if: always() in the action)
+#  - needs.<job>.outputs.<name> for cross-job output consumption
+
+name: Test — Workflow Telemetry
+
+on:
+  pull_request:
+    paths:
+      - 'actions/workflow-telemetry/**'
+      - '.github/workflows/test-workflow-telemetry.yml'
+  # Also allow manual trigger for testing without a PR
+  workflow_dispatch:
+
+jobs:
+  timed-job:
+    name: Timed job with telemetry
+    runs-on: ubuntu-latest
+
+    # PERMISSIONS LESSON:
+    # pull-requests: write  → allows posting/updating PR comments via GITHUB_TOKEN
+    # contents: read        → minimum needed for checkout
+    # Without pull-requests: write, the Octokit createComment call would 403.
+    permissions:
+      contents: read
+      pull-requests: write
+
+    # Outputs bubble up from steps to the job level.
+    # Other jobs that `needs:` this job can then read these via
+    # needs.timed-job.outputs.duration
+    outputs:
+      duration: ${{ steps.telemetry.outputs.duration-seconds }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The telemetry action's `pre` script runs BEFORE this step executes.
+      # You'll see "[telemetry] Job started at ..." in the log BEFORE "Checkout".
+      - name: Start telemetry
+        id: telemetry
+        uses: ./actions/workflow-telemetry
+        with:
+          # Only post PR comment when this is actually a pull_request event
+          comment-on-pr: ${{ github.event_name == 'pull_request' }}
+          upload-artifact: 'true'
+          # github.token is the auto-injected GITHUB_TOKEN secret.
+          # It's scoped to this repo and expires when the job ends.
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Simulate real work so the timing is meaningful
+      - name: Simulate build (10s)
+        run: sleep 10
+
+      - name: Simulate tests (5s)
+        run: sleep 5
+
+      # The telemetry action's `post` script runs AFTER all steps here,
+      # including this final step. You'll see it at the bottom of the log.
+      - name: Final step
+        run: echo "All steps done. Telemetry post will fire next."
+
+  # Show that the duration output is accessible from a downstream job
+  report:
+    name: Report duration
+    runs-on: ubuntu-latest
+    needs: timed-job
+    if: always()
+
+    steps:
+      - name: Print job duration
+        run: |
+          echo "The timed job took: ${{ needs.timed-job.outputs.duration }}s"

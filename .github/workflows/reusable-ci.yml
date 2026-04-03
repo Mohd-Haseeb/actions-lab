@@ -1,0 +1,115 @@
+# reusable-ci.yml
+#
+# WHAT THIS TEACHES:
+#  - workflow_call trigger: makes this workflow callable from other workflows
+#  - Typed inputs (string, boolean, number, choice, environment)
+#  - secrets inheritance vs explicit declaration
+#  - workflow-level outputs (different from job outputs — must go through a job)
+#  - How the caller workflow's context bleeds in (github.actor, github.sha, etc.)
+#  - Reusable workflows run on their own runner — they're not inlined
+#
+# REUSABLE WORKFLOW RULES:
+#  1. Only workflow_call can trigger a reusable workflow from another workflow.
+#  2. A reusable workflow can be called with `uses: owner/repo/.github/workflows/file.yml@ref`
+#     or with `uses: ./.github/workflows/file.yml` (same-repo, same-ref).
+#  3. The caller job must have NO other steps — just the `uses:` key.
+#  4. Secrets are NOT automatically inherited; the caller must pass them explicitly
+#     OR use `secrets: inherit` to forward all secrets.
+#  5. Outputs must be declared at both the job level AND the workflow_call level.
+
+name: Reusable CI
+
+on:
+  workflow_call:
+    # ── Inputs ────────────────────────────────────────────────────────────────
+    # Typed inputs let callers parameterise this workflow.
+    # Types: string | boolean | number | choice | environment
+    inputs:
+      node-version:
+        description: Node.js version to use
+        type: string
+        required: true
+      run-inspect:
+        description: Run runner-inspect as part of CI
+        type: boolean
+        required: false
+        default: true
+      environment:
+        description: Deployment environment (for environment protection rules)
+        type: string
+        required: false
+        default: ''
+
+    # ── Secrets ────────────────────────────────────────────────────────────────
+    # Declared secrets are available as ${{ secrets.NAME }} inside this workflow.
+    # Optional secrets: if not passed by the caller, they evaluate to ''.
+    secrets:
+      DEPLOY_TOKEN:
+        description: Token for deployment (optional)
+        required: false
+
+    # ── Outputs ───────────────────────────────────────────────────────────────
+    # Workflow-level outputs must reference a job output.
+    # Callers access them via needs.<job-that-called-this>.outputs.<name>.
+    outputs:
+      build-id:
+        description: Unique identifier for this build
+        value: ${{ jobs.ci.outputs.build-id }}
+      runner-os:
+        description: OS the CI ran on
+        value: ${{ jobs.ci.outputs.runner-os }}
+
+jobs:
+  ci:
+    name: CI (node@${{ inputs.node-version }})
+    runs-on: ubuntu-latest
+
+    # environment: ties the job to a GitHub Environment for protection rules,
+    # required reviewers, and environment-scoped secrets.
+    # Only set it if the caller provided a non-empty environment name.
+    environment: ${{ inputs.environment != '' && inputs.environment || null }}
+
+    permissions:
+      contents: read
+
+    outputs:
+      # Job outputs reference step outputs. These bubble up to workflow outputs above.
+      build-id:   ${{ steps.meta.outputs.build-id }}
+      runner-os:  ${{ steps.inspect.outputs.runner-os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Generate a unique build ID from the run ID + attempt number.
+      # GITHUB_RUN_ATTEMPT is set by the runner (starts at 1, increments on re-runs).
+      - name: Build metadata
+        id: meta
+        run: |
+          BUILD_ID="${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "build-id=${BUILD_ID}" >> "$GITHUB_OUTPUT"
+          echo "Build ID: ${BUILD_ID}"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      # Conditional step: only runs when caller set run-inspect to true.
+      # `if:` expressions are evaluated as booleans; `inputs.run-inspect` is
+      # already a boolean because we typed it that way in the inputs block.
+      - name: Inspect runner
+        id: inspect
+        if: inputs.run-inspect
+        uses: ./actions/runner-inspect
+
+      - name: Install dependencies
+        run: npm install
+
+      # Show how to safely use an optional secret:
+      # If DEPLOY_TOKEN was not passed by the caller, this is a no-op.
+      - name: Deploy (if token provided)
+        if: secrets.DEPLOY_TOKEN != ''
+        run: |
+          echo "Would deploy with token (redacted for safety)"
+          # In real usage: curl -H "Authorization: Bearer ${{ secrets.DEPLOY_TOKEN }}" ...

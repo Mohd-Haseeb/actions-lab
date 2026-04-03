@@ -1,0 +1,38 @@
+name: Dynamic Matrix
+description: >
+  Generates a GitHub Actions strategy matrix dynamically as a JSON output.
+  Use with fromJSON() in a downstream job's strategy.matrix field.
+  Teaches how outputs flow between jobs and how the matrix expansion works.
+
+inputs:
+  os:
+    description: Comma-separated list of runner OS targets
+    required: false
+    default: 'ubuntu-latest'
+  node-versions:
+    description: Comma-separated list of Node.js versions to test against
+    required: false
+    default: '18,20,22'
+  include-experimental:
+    description: >
+      Add an experimental entry to the matrix include list (node 23-nightly).
+      Demonstrates the include mechanism for extending specific combinations.
+    required: false
+    default: 'false'
+  exclude-os-node:
+    description: >
+      JSON array of {os, node-version} pairs to exclude from the matrix.
+      Example: '[{"os":"windows-latest","node-version":"18"}]'
+    required: false
+    default: '[]'
+
+outputs:
+  matrix:
+    description: >
+      JSON string suitable for use as: strategy.matrix: ${{ fromJSON(steps.X.outputs.matrix) }}
+  count:
+    description: Number of combinations the matrix will produce
+
+runs:
+  using: node20
+  main: src/index.js

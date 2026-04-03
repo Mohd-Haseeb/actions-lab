@@ -1,0 +1,132 @@
+# test-dynamic-matrix.yml
+#
+# WHAT THIS TEACHES:
+#  - The two-job pattern needed for dynamic matrices (you can't set matrix
+#    from a step in the SAME job — the runner evaluates matrix before steps run)
+#  - needs: [job-name] for job dependency and sequencing
+#  - needs.<job>.outputs.<name> for consuming outputs across jobs
+#  - fromJSON() expression function — parses a JSON string into an object
+#  - strategy.matrix: ${{ fromJSON(...) }} — the full dynamic matrix pattern
+#  - matrix.experimental to gate behaviour on a matrix dimension
+#  - continue-on-error: ${{ matrix.experimental }} for optional jobs
+
+name: Test — Dynamic Matrix
+
+on:
+  push:
+    paths:
+      - 'actions/dynamic-matrix/**'
+      - '.github/workflows/test-dynamic-matrix.yml'
+  workflow_dispatch:
+    inputs:
+      os-list:
+        description: Comma-separated OS list
+        default: 'ubuntu-latest,macos-latest'
+      node-versions:
+        description: Comma-separated Node.js versions
+        default: '18,20,22'
+      include-experimental:
+        description: Add experimental node@23-nightly job
+        type: boolean
+        default: false
+
+jobs:
+  # ── JOB 1: Generate the matrix ──────────────────────────────────────────────
+  # This job runs first and produces the matrix JSON as an output.
+  # It must complete before job 2 starts (because job 2 needs its output).
+  generate:
+    name: Generate matrix
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    # These job-level outputs reference step outputs.
+    # They're what downstream jobs consume via needs.generate.outputs.*
+    outputs:
+      matrix: ${{ steps.generate.outputs.matrix }}
+      count:   ${{ steps.generate.outputs.count }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate matrix
+        id: generate
+        uses: ./actions/dynamic-matrix
+        with:
+          os:                   ${{ inputs.os-list || 'ubuntu-latest,macos-latest' }}
+          node-versions:        ${{ inputs.node-versions || '18,20,22' }}
+          include-experimental: ${{ inputs.include-experimental || 'false' }}
+
+      - name: Show generated matrix
+        run: |
+          echo "Matrix JSON: ${{ steps.generate.outputs.matrix }}"
+          echo "Job count:   ${{ steps.generate.outputs.count }}"
+
+  # ── JOB 2: Fan out across the matrix ────────────────────────────────────────
+  # This job runs once per matrix combination — all in parallel.
+  # The runner expands the matrix BEFORE any of these jobs start.
+  build:
+    name: Build (os=${{ matrix.os }}, node=${{ matrix.node-version }})
+    needs: generate                              # wait for generate to finish
+    runs-on: ${{ matrix.os }}
+
+    # KEY PATTERN: fromJSON() converts the JSON string output into an object
+    # that the runner can use to expand the matrix.
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.generate.outputs.matrix) }}
+
+    # matrix.experimental is set by the `include` entry in dynamic-matrix.
+    # If the combination doesn't have it, it evaluates to '' (falsy).
+    # continue-on-error: true means a failure here won't cancel other matrix jobs.
+    continue-on-error: ${{ matrix.experimental == true }}
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Show environment
+        run: |
+          echo "OS:           ${{ matrix.os }}"
+          echo "Node version: ${{ matrix.node-version }}"
+          echo "Experimental: ${{ matrix.experimental || 'false' }}"
+          node --version
+          npm --version
+
+      - name: Install deps
+        run: npm install
+        working-directory: actions/dynamic-matrix
+
+      - name: Smoke test action
+        run: node src/index.js
+        working-directory: actions/dynamic-matrix
+        env:
+          # These env vars are normally set by the runner; we set them manually
+          # when running the action script directly (outside of the action context).
+          INPUT_OS: ${{ matrix.os }}
+          INPUT_NODE-VERSIONS: ${{ matrix.node-version }}
+          INPUT_INCLUDE-EXPERIMENTAL: 'false'
+          INPUT_EXCLUDE-OS-NODE: '[]'
+          GITHUB_STEP_SUMMARY: /dev/null
+
+  # ── JOB 3: Summary ──────────────────────────────────────────────────────────
+  summary:
+    name: Summary
+    runs-on: ubuntu-latest
+    needs: [generate, build]
+    if: always()
+
+    steps:
+      - name: Report
+        run: |
+          echo "Matrix had ${{ needs.generate.outputs.count }} combinations"
+          echo "Build result: ${{ needs.build.result }}"

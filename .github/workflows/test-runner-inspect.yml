@@ -1,0 +1,76 @@
+# test-runner-inspect.yml
+#
+# WHAT THIS TEACHES:
+#  - workflow_dispatch lets you trigger a workflow manually from the Actions UI
+#    (useful for testing without having to push code)
+#  - strategy.matrix runs the SAME job in parallel across multiple configurations
+#  - matrix.os lets you compare the runner environment across Ubuntu/macOS/Windows
+#  - steps.<id>.outputs.<name> is how you consume action outputs in later steps
+#  - github.event_name context tells you what triggered the current run
+
+name: Test — Runner Inspect
+
+on:
+  push:
+    paths:
+      - 'actions/runner-inspect/**'
+      - '.github/workflows/test-runner-inspect.yml'
+  workflow_dispatch:
+    # workflow_dispatch inputs appear as UI fields in the "Run workflow" dialog
+    inputs:
+      upload-artifact:
+        description: Upload JSON report as artifact?
+        type: boolean
+        default: false
+
+jobs:
+  inspect:
+    name: Inspect (${{ matrix.os }})
+    # The matrix expands this single job definition into 3 parallel jobs.
+    # The runner evaluates matrix BEFORE starting any jobs.
+    strategy:
+      # fail-fast: false means all matrix jobs run to completion even if one fails.
+      # Default is true (any failure cancels all remaining matrix jobs).
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    # Permissions control what the GITHUB_TOKEN can do.
+    # Principle of least privilege: only grant what you need.
+    permissions:
+      contents: read
+
+    steps:
+      # actions/checkout clones your repo into GITHUB_WORKSPACE.
+      # Without this step, GITHUB_WORKSPACE exists but is empty.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Use our local action (path relative to repo root)
+      - name: Run runner-inspect
+        id: inspect          # give this step an id so we can reference its outputs
+        uses: ./actions/runner-inspect
+        with:
+          # Use the workflow_dispatch input if set, otherwise false
+          upload-artifact: ${{ inputs.upload-artifact || 'false' }}
+          artifact-name: runner-report-${{ matrix.os }}
+
+      # This step shows how to consume outputs from a previous step.
+      # ${{ steps.<id>.outputs.<name> }} is the expression syntax.
+      - name: Print outputs
+        shell: bash
+        run: |
+          echo "runner-os:     ${{ steps.inspect.outputs.runner-os }}"
+          echo "runner-arch:   ${{ steps.inspect.outputs.runner-arch }}"
+          echo "tool-versions: ${{ steps.inspect.outputs.tool-versions }}"
+
+      # Demonstrate: reading a context value vs reading an output
+      # github.runner.os is the runner context; steps.inspect.outputs.runner-os
+      # is what our action computed — they should match.
+      - name: Compare context vs output
+        shell: bash
+        run: |
+          echo "runner.os (context):        ${{ runner.os }}"
+          echo "runner-os (action output):  ${{ steps.inspect.outputs.runner-os }}"

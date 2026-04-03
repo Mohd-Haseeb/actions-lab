@@ -1,0 +1,80 @@
+name: Job Summary
+description: >
+  Composite action that runs runner-inspect and appends a final summary.
+  Demonstrates: composite action syntax, input/output passthrough,
+  referencing local actions, and shell steps within composites.
+
+# COMPOSITE ACTION INTERNALS:
+#
+#  using: composite means there's no separate Node process for this action —
+#  the runner just executes the listed steps inline in the job's shell.
+#
+#  Key differences from JS actions:
+#  - Each `run` step MUST specify `shell:` explicitly (no default)
+#  - `uses:` steps reference other actions (local or remote)
+#  - Outputs use `value:` with expression syntax, not core.setOutput()
+#  - There's no pre/post lifecycle
+#  - The $GITHUB_ACTION_PATH env var points to THIS composite action's directory
+
+inputs:
+  include-runner-details:
+    description: Run the full runner-inspect sub-action
+    required: false
+    default: 'true'
+  upload-artifact:
+    description: Pass through to runner-inspect to upload the JSON report
+    required: false
+    default: 'false'
+
+outputs:
+  runner-os:
+    description: Passed through from the runner-inspect step
+    # Outputs in composite actions use `value:` with an expression.
+    # ${{ steps.<id>.outputs.<name> }} references a step's output by its id.
+    value: ${{ steps.inspect.outputs.runner-os }}
+  runner-arch:
+    description: Passed through from the runner-inspect step
+    value: ${{ steps.inspect.outputs.runner-arch }}
+  tool-versions:
+    description: JSON tool versions from runner-inspect
+    value: ${{ steps.inspect.outputs.tool-versions }}
+
+runs:
+  using: composite
+  steps:
+    # ── Step 1: Run runner-inspect (a local JS action) ──────────────────────
+    # Local actions are referenced with a path relative to the repo root,
+    # NOT relative to this action's directory.
+    - name: Inspect runner environment
+      id: inspect
+      if: inputs.include-runner-details == 'true'
+      uses: ./actions/runner-inspect
+      with:
+        upload-artifact: ${{ inputs.upload-artifact }}
+
+    # ── Step 2: Append a separator to GITHUB_STEP_SUMMARY ───────────────────
+    # In composite actions, `run` steps need an explicit `shell:` key.
+    # $GITHUB_STEP_SUMMARY is a file path — appending markdown to it adds
+    # content to the job summary UI in the Actions tab.
+    - name: Append job complete marker
+      shell: bash
+      run: |
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "---" >> "$GITHUB_STEP_SUMMARY"
+        echo "## Job Summary" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Key | Value |" >> "$GITHUB_STEP_SUMMARY"
+        echo "|-----|-------|" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Runner OS | ${{ steps.inspect.outputs.runner-os || runner.os }} |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Arch | ${{ steps.inspect.outputs.runner-arch || runner.arch }} |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Completed | $(date -u +"%Y-%m-%dT%H:%M:%SZ") |" >> "$GITHUB_STEP_SUMMARY"
+
+    # ── Step 3: Print action path (teaches $GITHUB_ACTION_PATH) ─────────────
+    # GITHUB_ACTION_PATH is set by the runner to the directory of the CURRENTLY
+    # EXECUTING action. Inside a composite action's step, it points to the
+    # composite action's directory, not the calling workflow's repo root.
+    - name: Show action internals
+      shell: bash
+      run: |
+        echo "[job-summary] GITHUB_ACTION_PATH = $GITHUB_ACTION_PATH"
+        echo "[job-summary] GITHUB_WORKSPACE   = $GITHUB_WORKSPACE"
+        echo "[job-summary] This composite action lives at: $GITHUB_ACTION_PATH"

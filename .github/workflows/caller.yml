@@ -1,0 +1,81 @@
+# caller.yml
+#
+# WHAT THIS TEACHES:
+#  - How to call a reusable workflow from the same repo using `./.github/workflows/`
+#  - The `with:` block maps to the callee's `inputs`
+#  - `secrets: inherit` vs explicit `secrets:` block
+#  - needs.<job>.outputs.<name> from a reusable workflow job
+#  - Calling the same reusable workflow multiple times with different inputs
+#    (fan-out pattern for multi-environment deployments)
+#
+# CALLER RULES:
+#  - The job that calls a reusable workflow can ONLY have `uses:`, `with:`,
+#    `secrets:`, `permissions:`, and `needs:`. No `steps:`.
+#  - The caller and callee must be in the same visibility (public/private).
+
+name: Caller — Reusable CI Demo
+
+on:
+  push:
+    paths:
+      - 'actions/**'
+      - '.github/workflows/caller.yml'
+      - '.github/workflows/reusable-ci.yml'
+  workflow_dispatch:
+
+jobs:
+  # ── Call 1: Node 20 ──────────────────────────────────────────────────────────
+  ci-node20:
+    name: CI / node20
+    # Same-repo reference: ./.github/workflows/<file>.yml
+    # For a different repo: owner/repo/.github/workflows/<file>.yml@ref
+    uses: ./.github/workflows/reusable-ci.yml
+    with:
+      node-version: '20'
+      run-inspect: true
+    # secrets: inherit forwards ALL secrets from the caller's context.
+    # Alternative: explicitly list secrets:
+    #   secrets:
+    #     DEPLOY_TOKEN: ${{ secrets.MY_DEPLOY_TOKEN }}
+    secrets: inherit
+    permissions:
+      contents: read
+
+  # ── Call 2: Node 18 (parallel) ────────────────────────────────────────────
+  ci-node18:
+    name: CI / node18
+    uses: ./.github/workflows/reusable-ci.yml
+    with:
+      node-version: '18'
+      run-inspect: false   # skip inspect on this one to show the conditional
+    secrets: inherit
+    permissions:
+      contents: read
+
+  # ── Aggregate: consume outputs from both calls ─────────────────────────────
+  # This job waits for BOTH reusable workflow calls to finish, then reads
+  # their outputs to demonstrate cross-job output consumption.
+  aggregate:
+    name: Aggregate results
+    runs-on: ubuntu-latest
+    needs: [ci-node20, ci-node18]
+    if: always()
+
+    steps:
+      - name: Show outputs from reusable workflows
+        run: |
+          echo "=== node20 ==="
+          echo "  build-id:  ${{ needs.ci-node20.outputs.build-id }}"
+          echo "  runner-os: ${{ needs.ci-node20.outputs.runner-os }}"
+          echo ""
+          echo "=== node18 ==="
+          echo "  build-id:  ${{ needs.ci-node18.outputs.build-id }}"
+          echo "  runner-os: ${{ needs.ci-node18.outputs.runner-os }}"
+
+      - name: Verify both builds ran
+        run: |
+          if [ -z "${{ needs.ci-node20.outputs.build-id }}" ]; then
+            echo "ERROR: node20 build-id is empty"
+            exit 1
+          fi
+          echo "Both builds completed successfully"

@@ -1,0 +1,29 @@
+name: Runner Inspect
+description: >
+  Deep inspection of the GitHub Actions runner environment.
+  Exposes env vars, filesystem layout, available tools, network info,
+  and system resources. Outputs a rich markdown report to GITHUB_STEP_SUMMARY.
+
+inputs:
+  upload-artifact:
+    description: Upload the full JSON inspection report as a workflow artifact
+    required: false
+    default: 'false'
+  artifact-name:
+    description: Name for the uploaded artifact
+    required: false
+    default: runner-inspect-report
+
+outputs:
+  runner-os:
+    description: Runner operating system (Linux, Windows, macOS)
+  runner-arch:
+    description: Runner CPU architecture (X64, ARM64)
+  tool-versions:
+    description: JSON string mapping tool names to their versions
+  report-path:
+    description: Workspace-relative path to the JSON report (set when upload-artifact is true)
+
+runs:
+  using: node20
+  main: src/index.js
