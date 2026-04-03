@@ -1,4 +1,5 @@
 node_modules/
+# dist/ is intentionally committed — it's the bundled action that runs on the runner
 *.log
 telemetry-report.json
 runner-inspect-report.json

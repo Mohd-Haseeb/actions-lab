@@ -28,9 +28,9 @@ outputs:
 runs:
   using: node20
   # pre runs BEFORE the first step in the job (not before main)
-  pre: src/pre.js
+  pre: dist/pre/index.js
   # main is required but we use it just to log that telemetry is active
-  main: src/main.js
+  main: dist/main/index.js
   # post runs AFTER all steps, even if the job fails (because post-if: always())
-  post: src/post.js
+  post: dist/post/index.js
   post-if: always()

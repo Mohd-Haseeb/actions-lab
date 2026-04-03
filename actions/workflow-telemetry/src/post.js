@@ -81,13 +81,14 @@ async function post() {
       )
       fs.writeFileSync(reportPath, JSON.stringify(meta, null, 2))
 
-      const client = new artifact.DefaultArtifactClient()
-      const { id } = await client.uploadArtifact(
+      // v1 API: artifact.create() returns an ArtifactClient
+      const client = artifact.create()
+      const { artifactName } = await client.uploadArtifact(
         `telemetry-${meta.job}-${meta.runNumber}`,
         [reportPath],
         process.env.GITHUB_WORKSPACE ?? process.cwd()
       )
-      core.info(`[telemetry] Artifact uploaded (id=${id})`)
+      core.info(`[telemetry] Artifact uploaded: ${artifactName}`)
     }
 
     // ── PR comment (optional) ─────────────────────────────────────────────────

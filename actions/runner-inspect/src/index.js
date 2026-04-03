@@ -242,15 +242,16 @@ async function run() {
       fs.writeFileSync(reportPath, JSON.stringify(report, null, 2))
       core.info(`\nReport written to: ${reportPath}`)
 
-      const client = new artifact.DefaultArtifactClient()
+      // v1 API: artifact.create() returns an ArtifactClient
+      const client = artifact.create()
       const artifactName = core.getInput('artifact-name') || 'runner-inspect-report'
 
-      const { id, size } = await client.uploadArtifact(
+      const { artifactName: uploadedName, size } = await client.uploadArtifact(
         artifactName,
         [reportPath],
         process.env.GITHUB_WORKSPACE ?? process.cwd()
       )
-      core.info(`Artifact uploaded: id=${id} size=${size} bytes`)
+      core.info(`Artifact uploaded: name=${uploadedName} size=${size} bytes`)
       core.setOutput('report-path', reportPath)
     }
 

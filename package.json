@@ -5,5 +5,8 @@
   ],
   "scripts": {
     "install:all": "npm install --workspaces"
+  },
+  "devDependencies": {
+    "@vercel/ncc": "^0.38.4"
   }
 }
