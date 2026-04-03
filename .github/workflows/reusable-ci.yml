@@ -106,10 +106,16 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # Show how to safely use an optional secret:
-      # If DEPLOY_TOKEN was not passed by the caller, this is a no-op.
+      # Show how to safely use an optional secret.
+      # LESSON: secrets context is blocked in `if:` expressions (security restriction).
+      # The correct pattern is to always run the step and guard inside the script.
       - name: Deploy (if token provided)
-        if: secrets.DEPLOY_TOKEN != ''
+        env:
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
         run: |
+          if [ -z "$DEPLOY_TOKEN" ]; then
+            echo "No DEPLOY_TOKEN provided, skipping deploy"
+            exit 0
+          fi
           echo "Would deploy with token (redacted for safety)"
-          # In real usage: curl -H "Authorization: Bearer ${{ secrets.DEPLOY_TOKEN }}" ...
+          # In real usage: curl -H "Authorization: Bearer $DEPLOY_TOKEN" ...

@@ -29,7 +29,7 @@ inputs:
 outputs:
   matrix:
     description: >
-      JSON string suitable for use as: strategy.matrix: ${{ fromJSON(steps.X.outputs.matrix) }}
+      JSON string suitable for use as: strategy.matrix with fromJSON()
   count:
     description: Number of combinations the matrix will produce
 
